@@ -6,10 +6,17 @@
     <title>Football: Pro Control (Hybrid)</title>
     <style>
         body { margin: 0; background: #1a252f; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; color: white; font-family: sans-serif; overflow: hidden; touch-action: none; }
+        
+        /* ИСПРАВЛЕННЫЙ ПОВОРОТ ДЛЯ МОБИЛОК */
         #game-container { position: relative; border: 8px solid #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 50px rgba(0,0,0,0.7); display: none; }
         
-        /* ПЕРЕВЕРНУТЫЙ ИНТЕРФЕЙС ДЛЯ ТЕЛЕФОНА */
-        .mobile-flip { transform: rotate(180deg); }
+        .mobile-mode { 
+            transform: rotate(90deg);
+            transform-origin: center;
+            width: 100vh !important;
+            height: 100vw !important;
+            position: absolute;
+        }
 
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; pointer-events: none; display: flex; flex-direction: column; align-items: center; padding-top: 15px; z-index: 10; }
         #stats-bar { display: flex; gap: 40px; font-size: 24px; font-weight: bold; background: rgba(0,0,0,0.75); padding: 10px 30px; border-radius: 50px; border: 2px solid rgba(255,255,255,0.3); backdrop-filter: blur(5px); }
@@ -22,8 +29,7 @@
         .row { margin: 12px 0; display: flex; justify-content: space-between; align-items: center; }
         select, input { padding: 5px; border-radius: 5px; border: none; width: 110px; }
         button { padding: 15px 40px; font-size: 20px; cursor: pointer; background: #2ecc71; color: white; border: none; border-radius: 12px; font-weight: bold; margin: 5px; transition: 0.2s; }
-        button:hover { background: #27ae60; transform: scale(1.05); }
-
+        
         #mobile-controls { position: absolute; width: 100%; height: 100%; top: 0; left: 0; pointer-events: none; display: none; }
         #joystick-zone { position: absolute; bottom: 30px; left: 30px; width: 140px; height: 140px; background: rgba(255,255,255,0.1); border-radius: 50%; pointer-events: auto; border: 2px solid rgba(255,255,255,0.2); }
         #joystick-stick { position: absolute; top: 45px; left: 45px; width: 50px; height: 50px; background: rgba(255,255,255,0.4); border-radius: 50%; }
@@ -105,7 +111,9 @@ function initPlatform(type) {
     isMobileMode = (type === 'mobile');
     document.getElementById('device-select').style.display = 'none';
     document.getElementById('mainMenu').style.display = 'flex';
-    if(isMobileMode) document.getElementById('game-container').classList.add('mobile-flip');
+    if(isMobileMode) {
+        document.getElementById('game-container').classList.add('mobile-mode');
+    }
 }
 
 const stick = document.getElementById('joystick-stick');
@@ -119,19 +127,26 @@ function handleJoy(e) {
     const rect = document.getElementById('joystick-zone').getBoundingClientRect();
     const cx = rect.left + rect.width / 2;
     const cy = rect.top + rect.height / 2;
-    let dx = isMobileMode ? (cx - t.clientX) : (t.clientX - cx);
-    let dy = isMobileMode ? (cy - t.clientY) : (t.clientY - cy);
+    
+    // Исправленная математика джойстика для развернутого экрана
+    let dx = isMobileMode ? (t.clientY - cy) : (t.clientX - cx);
+    let dy = isMobileMode ? (cx - t.clientX) : (t.clientY - cy);
+
     const dist = Math.min(45, Math.hypot(dx, dy));
     const angle = Math.atan2(dy, dx);
     joyX = (Math.cos(angle) * dist) / 45;
     joyY = (Math.sin(angle) * dist) / 45;
-    stick.style.transform = `translate(${Math.cos(angle)*dist * (isMobileMode?-1:1)}px, ${Math.sin(angle)*dist * (isMobileMode?-1:1)}px)`;
+    
+    // Визуальное смещение стика
+    let visualX = Math.cos(angle) * dist;
+    let visualY = Math.sin(angle) * dist;
+    stick.style.transform = `translate(${visualX}px, ${visualY}px)`;
 }
 
-document.getElementById('kick-button').addEventListener('touchstart', e => { e.preventDefault(); player.isKicking = true; keys['KeyK'] = true; });
-document.getElementById('kick-button').addEventListener('touchend', () => { player.isKicking = false; keys['KeyK'] = false; });
-document.getElementById('flick-button').addEventListener('touchstart', e => { e.preventDefault(); player.isFlicking = true; keys['KeyL'] = true; });
-document.getElementById('flick-button').addEventListener('touchend', () => { player.isFlicking = false; keys['KeyL'] = false; });
+document.getElementById('kick-button').addEventListener('touchstart', e => { e.preventDefault(); player.isKicking = true; });
+document.getElementById('kick-button').addEventListener('touchend', () => { player.isKicking = false; });
+document.getElementById('flick-button').addEventListener('touchstart', e => { e.preventDefault(); player.isFlicking = true; });
+document.getElementById('flick-button').addEventListener('touchend', () => { player.isFlicking = false; });
 
 window.onkeydown = (e) => { 
     keys[e.code] = true; 
@@ -162,8 +177,15 @@ function startGame() {
     else if(fieldSize === 'medium') { world.width = 1600; world.height = 1000; view.zoom = 0.9; }
     else { world.width = 2400; world.height = 1400; view.zoom = 0.75; }
 
-    view.width = Math.min(window.innerWidth - 40, 1100);
-    view.height = Math.min(window.innerHeight - 150, 650);
+    // Адаптация под развернутый экран телефона
+    if (isMobileMode) {
+        view.width = Math.min(window.innerHeight - 40, 1100);
+        view.height = Math.min(window.innerWidth - 100, 650);
+    } else {
+        view.width = Math.min(window.innerWidth - 40, 1100);
+        view.height = Math.min(window.innerHeight - 150, 650);
+    }
+    
     canvas.width = view.width; canvas.height = view.height;
 
     bots = [];
@@ -212,22 +234,17 @@ function update(dt) {
     allPlayers.forEach((p, idx) => {
         if(p !== player) {
             let dxB = ball.x - p.x, dyB = ball.y - p.y, bDist = Math.hypot(dxB, dyB);
-            if (bDist > 20) {
-                p.vx += (dxB / bDist) * 0.4; p.vy += (dyB / bDist) * 0.4;
-            }
+            if (bDist > 20) { p.vx += (dxB / bDist) * 0.4; p.vy += (dyB / bDist) * 0.4; }
         }
 
-        // РЕШЕНИЕ БАГА: КОЛЛИЗИИ МЕЖДУ ИГРОКАМИ
         for(let j = idx + 1; j < allPlayers.length; j++) {
             let p2 = allPlayers[j];
             let dxP = p2.x - p.x, dyP = p2.y - p.y, distP = Math.hypot(dxP, dyP);
             if(distP < p.r + p2.r) {
                 let angle = Math.atan2(dyP, dxP);
                 let overlap = (p.r + p2.r) - distP;
-                p.x -= Math.cos(angle) * (overlap / 2);
-                p.y -= Math.sin(angle) * (overlap / 2);
-                p2.x += Math.cos(angle) * (overlap / 2);
-                p2.y += Math.sin(angle) * (overlap / 2);
+                p.x -= Math.cos(angle) * (overlap / 2); p.y -= Math.sin(angle) * (overlap / 2);
+                p2.x += Math.cos(angle) * (overlap / 2); p2.y += Math.sin(angle) * (overlap / 2);
             }
         }
 
@@ -238,15 +255,11 @@ function update(dt) {
         let dx = ball.x - p.x, dy = ball.y - p.y, dist = Math.hypot(dx, dy);
         if (dist < p.r + ball.r) {
             let ang = Math.atan2(dy, dx);
-            ball.x = p.x + Math.cos(ang) * (p.r + ball.r);
-            ball.y = p.y + Math.sin(ang) * (p.r + ball.r);
-            ball.vx = (ball.vx + Math.cos(ang) * 4) * 0.5;
-            ball.vy = (ball.vy + Math.sin(ang) * 4) * 0.5;
+            ball.x = p.x + Math.cos(ang) * (p.r + ball.r); ball.y = p.y + Math.sin(ang) * (p.r + ball.r);
+            ball.vx = (ball.vx + Math.cos(ang) * 4) * 0.5; ball.vy = (ball.vy + Math.sin(ang) * 4) * 0.5;
         }
 
         let canKick = dist < p.kickR + ball.r;
-        
-        // ОБЫЧНЫЙ УДАР
         let tryingKick = (p === player && (keys['KeyK'] || player.isKicking)) || (p !== player && canKick && Math.random() < 0.1);
         if (canKick && tryingKick) {
             let ang = Math.atan2(dy, dx);
@@ -254,7 +267,6 @@ function update(dt) {
             ball.vx = Math.cos(ang) * power; ball.vy = Math.sin(ang) * power;
         }
 
-        // ПРОКИД (В 2.5 РАЗА СЛАБЕЕ УДАРА)
         if (p === player && player.isFlicking && canKick) {
             let ang = Math.atan2(dy, dx);
             let power = (16 + (p.boost * 7)) / 2.5; 
@@ -326,7 +338,6 @@ function draw() {
 function drawBallPointer() {
     let screenBallX = (ball.x - view.x) * view.zoom;
     let screenBallY = (ball.y - view.y) * view.zoom;
-    if(isMobileMode) { screenBallX = canvas.width - screenBallX; screenBallY = canvas.height - screenBallY; }
     if (screenBallX < 0 || screenBallX > canvas.width || screenBallY < 0 || screenBallY > canvas.height) {
         let edgeX = Math.max(25, Math.min(canvas.width - 25, screenBallX)), edgeY = Math.max(25, Math.min(canvas.height - 25, screenBallY));
         let angle = Math.atan2(screenBallY - canvas.height/2, screenBallX - canvas.width/2);
