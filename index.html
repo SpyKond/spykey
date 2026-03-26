@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Football: Pro Control (Hybrid)</title>
+    <style>
+        body { margin: 0; background: #1a252f; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; color: white; font-family: sans-serif; overflow: hidden; touch-action: none; }
+        #game-container { position: relative; border: 8px solid #ffffff; border-radius: 20px; overflow: hidden; box-shadow: 0 10px 50px rgba(0,0,0,0.7); display: none; }
+        
+        /* ПЕРЕВЕРНУТЫЙ ИНТЕРФЕЙС ДЛЯ ТЕЛЕФОНА */
+        .mobile-flip { transform: rotate(180deg); }
+
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; pointer-events: none; display: flex; flex-direction: column; align-items: center; padding-top: 15px; z-index: 10; }
+        #stats-bar { display: flex; gap: 40px; font-size: 24px; font-weight: bold; background: rgba(0,0,0,0.75); padding: 10px 30px; border-radius: 50px; border: 2px solid rgba(255,255,255,0.3); backdrop-filter: blur(5px); }
+        #stamina-bar { width: 120px; height: 10px; background: #1e4d2b; border-radius: 5px; border: 1px solid #fff; overflow: hidden; margin-top: 4px; }
+        #stamina-fill { width: 100%; height: 100%; background: #2ecc71; }
+        #fps-counter { position: absolute; bottom: 10px; left: 15px; font-size: 14px; color: #f1c40f; font-family: monospace; z-index: 10; opacity: 0.7; }
+        canvas { background-color: #27ae60; display: block; }
+        .menu-screen { position: absolute; background: #1a252f; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; }
+        .settings-panel { background: rgba(255,255,255,0.1); padding: 20px; border-radius: 15px; margin: 20px; display: none; width: 320px; }
+        .row { margin: 12px 0; display: flex; justify-content: space-between; align-items: center; }
+        select, input { padding: 5px; border-radius: 5px; border: none; width: 110px; }
+        button { padding: 15px 40px; font-size: 20px; cursor: pointer; background: #2ecc71; color: white; border: none; border-radius: 12px; font-weight: bold; margin: 5px; transition: 0.2s; }
+        button:hover { background: #27ae60; transform: scale(1.05); }
+
+        #mobile-controls { position: absolute; width: 100%; height: 100%; top: 0; left: 0; pointer-events: none; display: none; }
+        #joystick-zone { position: absolute; bottom: 30px; left: 30px; width: 140px; height: 140px; background: rgba(255,255,255,0.1); border-radius: 50%; pointer-events: auto; border: 2px solid rgba(255,255,255,0.2); }
+        #joystick-stick { position: absolute; top: 45px; left: 45px; width: 50px; height: 50px; background: rgba(255,255,255,0.4); border-radius: 50%; }
+        
+        .m-btn { position: absolute; border-radius: 50%; border: 4px solid white; color: white; font-weight: bold; display: flex; justify-content: center; align-items: center; pointer-events: auto; -webkit-user-select: none; }
+        #kick-button { bottom: 40px; right: 40px; width: 100px; height: 100px; background: rgba(231, 76, 60, 0.7); }
+        #flick-button { bottom: 40px; right: 155px; width: 85px; height: 85px; background: rgba(52, 152, 219, 0.7); font-size: 14px; }
+        
+        #device-select { position: absolute; z-index: 200; width: 100%; height: 100%; background: #1a252f; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    </style>
+</head>
+<body>
+
+<div id="device-select">
+    <h1>ВЫБЕРИТЕ УСТРОЙСТВО</h1>
+    <button onclick="initPlatform('pc')">ПК (КЛАВИАТУРА)</button>
+    <button onclick="initPlatform('mobile')" style="background:#3498db">ТЕЛЕФОН (ДЖОЙСТИК)</button>
+</div>
+
+<div id="mainMenu" class="menu-screen" style="display:none">
+    <h1>FOOTBALL EVOLUTION</h1>
+    <p>K - Удар, L - Прокид</p>
+    <button onclick="startGame()">ИГРАТЬ</button>
+    <button style="background: #34495e;" onclick="toggleSettings()">НАСТРОЙКИ</button>
+    
+    <div id="settingsPanel" class="settings-panel">
+        <div class="row"><span>Ботов:</span><select id="setBots"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option></select></div>
+        <div class="row"><span>Поле:</span><select id="setField"><option value="small">Маленькое</option><option value="medium">Среднее</option><option value="large" selected>Большое</option></select></div>
+        <div class="row"><span>Время:</span><select id="setTime"><option value="60">1 мин</option><option value="180" selected>3 мин</option><option value="300">5 мин</option></select></div>
+        <div class="row"><span>Голы:</span><select id="setGoals" onchange="checkCustomGoal(this.value)"><option value="3">3</option><option value="5" selected>5</option><option value="10">10</option><option value="custom">Свой вариант</option><option value="999">Бесконечно</option></select></div>
+        <input type="number" id="customGoalInput" placeholder="Кол-во голов" style="display:none; margin-top:5px; width: 100%;">
+        <button style="margin-top:20px; width: 100%;" onclick="toggleSettings()">СОХРАНИТЬ</button>
+    </div>
+</div>
+
+<div id="game-container">
+    <div id="ui-layer">
+        <div id="stats-bar">
+            <div style="color: #3498db;">P: <span id="pScore">0</span></div>
+            <div id="timer" style="color: #f1c40f;">03:00</div>
+            <div id="stamina-bar"><div id="stamina-fill"></div></div>
+            <div style="color: #e74c3c;">B: <span id="cScore">0</span></div>
+        </div>
+    </div>
+    <div id="fps-counter">FPS: 60</div>
+    <canvas id="gameCanvas"></canvas>
+    <div id="mobile-controls">
+        <div id="joystick-zone"><div id="joystick-stick"></div></div>
+        <div id="kick-button" class="m-btn">УДАР</div>
+        <div id="flick-button" class="m-btn">ПРОКИД</div>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let world = { width: 2400, height: 1400 };
+let view = { width: 1000, height: 600, x: 0, y: 0, zoom: 0.75 };
+
+const BALL_FRICTION = 0.988;
+const PLAYER_FRICTION = 0.85;
+const BASE_ACCEL = 0.45; 
+const MAX_BOOST_ACCEL = 0.75;
+
+let gameActive = false;
+let timeLeft = 180;
+let scores = { player: 0, cpu: 0 };
+let goalLimit = 5;
+let lastTime = performance.now();
+const player = { x: 0, y: 0, r: 23, kickR: 45, color: '#3498db', vx: 0, vy: 0, boost: 0, stamina: 100, lastKeyCombo: '', isKicking: false, isFlicking: false };
+let bots = [];
+const ball = { x: 0, y: 0, r: 15, vx: 0, vy: 0 };
+const keys = {};
+
+let joyX = 0, joyY = 0;
+let isMobileMode = false;
+
+function initPlatform(type) {
+    isMobileMode = (type === 'mobile');
+    document.getElementById('device-select').style.display = 'none';
+    document.getElementById('mainMenu').style.display = 'flex';
+    if(isMobileMode) document.getElementById('game-container').classList.add('mobile-flip');
+}
+
+const stick = document.getElementById('joystick-stick');
+document.getElementById('joystick-zone').addEventListener('touchstart', e => handleJoy(e), {passive: false});
+document.getElementById('joystick-zone').addEventListener('touchmove', e => handleJoy(e), {passive: false});
+document.getElementById('joystick-zone').addEventListener('touchend', () => { joyX = 0; joyY = 0; stick.style.transform = `translate(0,0)`; }, {passive: false});
+
+function handleJoy(e) {
+    e.preventDefault();
+    const t = e.touches[0];
+    const rect = document.getElementById('joystick-zone').getBoundingClientRect();
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    let dx = isMobileMode ? (cx - t.clientX) : (t.clientX - cx);
+    let dy = isMobileMode ? (cy - t.clientY) : (t.clientY - cy);
+    const dist = Math.min(45, Math.hypot(dx, dy));
+    const angle = Math.atan2(dy, dx);
+    joyX = (Math.cos(angle) * dist) / 45;
+    joyY = (Math.sin(angle) * dist) / 45;
+    stick.style.transform = `translate(${Math.cos(angle)*dist * (isMobileMode?-1:1)}px, ${Math.sin(angle)*dist * (isMobileMode?-1:1)}px)`;
+}
+
+document.getElementById('kick-button').addEventListener('touchstart', e => { e.preventDefault(); player.isKicking = true; keys['KeyK'] = true; });
+document.getElementById('kick-button').addEventListener('touchend', () => { player.isKicking = false; keys['KeyK'] = false; });
+document.getElementById('flick-button').addEventListener('touchstart', e => { e.preventDefault(); player.isFlicking = true; keys['KeyL'] = true; });
+document.getElementById('flick-button').addEventListener('touchend', () => { player.isFlicking = false; keys['KeyL'] = false; });
+
+window.onkeydown = (e) => { 
+    keys[e.code] = true; 
+    if(e.code === 'KeyK') player.isKicking = true; 
+    if(e.code === 'KeyL') player.isFlicking = true;
+};
+window.onkeyup = (e) => { 
+    keys[e.code] = false; 
+    if(e.code === 'KeyK') player.isKicking = false; 
+    if(e.code === 'KeyL') player.isFlicking = false;
+};
+
+function toggleSettings() {
+    const p = document.getElementById('settingsPanel');
+    p.style.display = p.style.display === 'block' ? 'none' : 'block';
+}
+
+function checkCustomGoal(val) { document.getElementById('customGoalInput').style.display = (val === 'custom') ? 'block' : 'none'; }
+
+function startGame() {
+    const botsCount = parseInt(document.getElementById('setBots').value);
+    const fieldSize = document.getElementById('setField').value;
+    timeLeft = parseInt(document.getElementById('setTime').value);
+    let goals = document.getElementById('setGoals').value;
+    goalLimit = goals === 'custom' ? (parseInt(document.getElementById('customGoalInput').value) || 5) : parseInt(goals);
+
+    if(fieldSize === 'small') { world.width = 1100; world.height = 700; view.zoom = 1; }
+    else if(fieldSize === 'medium') { world.width = 1600; world.height = 1000; view.zoom = 0.9; }
+    else { world.width = 2400; world.height = 1400; view.zoom = 0.75; }
+
+    view.width = Math.min(window.innerWidth - 40, 1100);
+    view.height = Math.min(window.innerHeight - 150, 650);
+    canvas.width = view.width; canvas.height = view.height;
+
+    bots = [];
+    for(let i=0; i<botsCount; i++) bots.push({ x: 0, y: 0, r: 23, kickR: 45, color: '#e74c3c', vx: 0, vy: 0, boost: 0 });
+
+    document.getElementById('mainMenu').style.display = 'none';
+    document.getElementById('game-container').style.display = 'block';
+    if(isMobileMode) document.getElementById('mobile-controls').style.display = 'block';
+    resetPos();
+    gameActive = true;
+    requestAnimationFrame(mainLoop);
+}
+
+function resetPos() {
+    player.x = 300; player.y = world.height/2;
+    player.vx = player.vy = player.boost = 0; player.stamina = 100;
+    bots.forEach((b, i) => { b.x = world.width - 300; b.y = (world.height / (bots.length + 1)) * (i + 1); b.vx = b.vy = b.boost = 0; });
+    ball.x = world.width/2; ball.y = world.height/2; ball.vx = ball.vy = 0;
+}
+
+function update(dt) {
+    if (!gameActive) return;
+    document.getElementById('fps-counter').innerText = `FPS: ${Math.round(1000/dt)}`;
+
+    let currentCombo = '';
+    if (keys['KeyW'] || joyY < -0.3) currentCombo += 'W'; if (keys['KeyS'] || joyY > 0.3) currentCombo += 'S';
+    if (keys['KeyA'] || joyX < -0.3) currentCombo += 'A'; if (keys['KeyD'] || joyX > 0.3) currentCombo += 'D';
+
+    if (currentCombo !== '' && player.stamina > 0) {
+        if (currentCombo === player.lastKeyCombo) player.boost = Math.min(1, player.boost + 0.004);
+        else player.boost = Math.max(0, player.boost - 0.15);
+        player.stamina -= 0.18;
+    } else {
+        player.boost = Math.max(0, player.boost - 0.05);
+        player.stamina = Math.min(100, player.stamina + 0.35);
+    }
+    player.lastKeyCombo = currentCombo;
+
+    let pAccel = (BASE_ACCEL + (player.boost * MAX_BOOST_ACCEL)) * (player.stamina > 0 ? 1 : 0.35);
+    if (isMobileMode) { player.vx += joyX * pAccel; player.vy += joyY * pAccel; }
+    else { if (keys['KeyW']) player.vy -= pAccel; if (keys['KeyS']) player.vy += pAccel; if (keys['KeyA']) player.vx -= pAccel; if (keys['KeyD']) player.vx += pAccel; }
+
+    document.getElementById('stamina-fill').style.width = player.stamina + "%";
+
+    let allPlayers = [player, ...bots];
+    allPlayers.forEach((p, idx) => {
+        if(p !== player) {
+            let dxB = ball.x - p.x, dyB = ball.y - p.y, bDist = Math.hypot(dxB, dyB);
+            if (bDist > 20) {
+                p.vx += (dxB / bDist) * 0.4; p.vy += (dyB / bDist) * 0.4;
+            }
+        }
+
+        // РЕШЕНИЕ БАГА: КОЛЛИЗИИ МЕЖДУ ИГРОКАМИ
+        for(let j = idx + 1; j < allPlayers.length; j++) {
+            let p2 = allPlayers[j];
+            let dxP = p2.x - p.x, dyP = p2.y - p.y, distP = Math.hypot(dxP, dyP);
+            if(distP < p.r + p2.r) {
+                let angle = Math.atan2(dyP, dxP);
+                let overlap = (p.r + p2.r) - distP;
+                p.x -= Math.cos(angle) * (overlap / 2);
+                p.y -= Math.sin(angle) * (overlap / 2);
+                p2.x += Math.cos(angle) * (overlap / 2);
+                p2.y += Math.sin(angle) * (overlap / 2);
+            }
+        }
+
+        p.x += p.vx; p.y += p.vy;
+        p.vx *= PLAYER_FRICTION; p.vy *= PLAYER_FRICTION;
+        handleCollisions(p);
+
+        let dx = ball.x - p.x, dy = ball.y - p.y, dist = Math.hypot(dx, dy);
+        if (dist < p.r + ball.r) {
+            let ang = Math.atan2(dy, dx);
+            ball.x = p.x + Math.cos(ang) * (p.r + ball.r);
+            ball.y = p.y + Math.sin(ang) * (p.r + ball.r);
+            ball.vx = (ball.vx + Math.cos(ang) * 4) * 0.5;
+            ball.vy = (ball.vy + Math.sin(ang) * 4) * 0.5;
+        }
+
+        let canKick = dist < p.kickR + ball.r;
+        
+        // ОБЫЧНЫЙ УДАР
+        let tryingKick = (p === player && (keys['KeyK'] || player.isKicking)) || (p !== player && canKick && Math.random() < 0.1);
+        if (canKick && tryingKick) {
+            let ang = Math.atan2(dy, dx);
+            let power = 16 + (p.boost * 7);
+            ball.vx = Math.cos(ang) * power; ball.vy = Math.sin(ang) * power;
+        }
+
+        // ПРОКИД (В 2.5 РАЗА СЛАБЕЕ УДАРА)
+        if (p === player && player.isFlicking && canKick) {
+            let ang = Math.atan2(dy, dx);
+            let power = (16 + (p.boost * 7)) / 2.5; 
+            ball.vx = Math.cos(ang) * power; ball.vy = Math.sin(ang) * power;
+        }
+    });
+
+    ball.x += ball.vx; ball.y += ball.vy;
+    ball.vx *= BALL_FRICTION; ball.vy *= BALL_FRICTION;
+    handleCollisions(ball);
+
+    view.x = player.x - (view.width / view.zoom) / 2;
+    view.y = player.y - (view.height / view.zoom) / 2;
+    view.x = Math.max(0, Math.min(view.x, world.width - view.width / view.zoom));
+    view.y = Math.max(0, Math.min(view.y, world.height - view.height / view.zoom));
+
+    if (ball.y > world.height * 0.35 && ball.y < world.height * 0.65) {
+        if (ball.x < 20) score('cpu'); else if (ball.x > world.width - 20) score('player');
+    }
+}
+
+function handleCollisions(obj) {
+    const r = obj.r;
+    if (obj.y < r + 10) { obj.y = r + 10; obj.vy *= -0.6; }
+    if (obj.y > world.height - r - 10) { obj.y = world.height - r - 10; obj.vy *= -0.6; }
+    if (!(obj.y > world.height * 0.35 && obj.y < world.height * 0.65)) {
+        if (obj.x < r + 10) { obj.x = r + 10; obj.vx *= -0.6; }
+        if (obj.x > world.width - r - 10) { obj.x = world.width - r - 10; obj.vx *= -0.6; }
+    }
+}
+
+function score(who) {
+    scores[who]++; document.getElementById(who[0] + 'Score').innerText = scores[who];
+    if(scores[who] >= goalLimit && goalLimit < 900) endGame(who === 'player' ? "ПОБЕДА!" : "БОТЫ ВЫИГРАЛИ");
+    else resetPos();
+}
+
+function endGame(msg) { gameActive = false; alert(msg); location.reload(); }
+
+function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.save();
+    ctx.scale(view.zoom, view.zoom);
+    ctx.translate(-view.x, -view.y);
+    ctx.fillStyle = "#2ecc71"; ctx.fillRect(0, 0, world.width, world.height);
+    ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.lineWidth = 6;
+    ctx.strokeRect(10, 10, world.width-20, world.height-20);
+    ctx.beginPath(); ctx.moveTo(world.width/2, 10); ctx.lineTo(world.width/2, world.height-10); ctx.stroke();
+    ctx.beginPath(); ctx.arc(world.width/2, world.height/2, 120, 0, Math.PI*2); ctx.stroke();
+    ctx.fillStyle = "#fff"; ctx.fillRect(-5, world.height*0.35, 20, world.height*0.3);
+    ctx.fillRect(world.width-15, world.height*0.35, 20, world.height*0.3);
+
+    ctx.fillStyle = "white"; ctx.beginPath(); ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = "black"; ctx.lineWidth = 2; ctx.stroke();
+
+    [player, ...bots].forEach(p => {
+        ctx.fillStyle = "rgba(0,0,0,0.2)"; ctx.fillRect(p.x - 20, p.y - 55, 40, 6);
+        ctx.fillStyle = p.boost > 0.8 ? "#f1c40f" : p.color; ctx.fillRect(p.x - 20, p.y - 55, 40 * p.boost, 6);
+        ctx.beginPath(); ctx.arc(p.x, p.y, p.kickR, 0, Math.PI*2);
+        ctx.strokeStyle = (p === player && (keys['KeyK'] || player.isKicking || player.isFlicking)) ? "white" : "rgba(255,255,255,0.3)";
+        ctx.lineWidth = 2; ctx.setLineDash([5, 5]); ctx.stroke(); ctx.setLineDash([]);
+        ctx.fillStyle = p.color; ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = "white"; ctx.lineWidth = 3; ctx.stroke();
+    });
+    ctx.restore();
+    drawBallPointer();
+}
+
+function drawBallPointer() {
+    let screenBallX = (ball.x - view.x) * view.zoom;
+    let screenBallY = (ball.y - view.y) * view.zoom;
+    if(isMobileMode) { screenBallX = canvas.width - screenBallX; screenBallY = canvas.height - screenBallY; }
+    if (screenBallX < 0 || screenBallX > canvas.width || screenBallY < 0 || screenBallY > canvas.height) {
+        let edgeX = Math.max(25, Math.min(canvas.width - 25, screenBallX)), edgeY = Math.max(25, Math.min(canvas.height - 25, screenBallY));
+        let angle = Math.atan2(screenBallY - canvas.height/2, screenBallX - canvas.width/2);
+        ctx.save(); ctx.translate(edgeX, edgeY); ctx.rotate(angle);
+        ctx.fillStyle = "#e74c3c"; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-15, -10); ctx.lineTo(-15, 10); ctx.closePath(); ctx.fill();
+        ctx.stroke(); ctx.restore();
+    }
+}
+
+function mainLoop(timestamp) {
+    let dt = timestamp - lastTime; lastTime = timestamp;
+    update(Math.min(dt, 32)); draw();
+    if(gameActive) requestAnimationFrame(mainLoop);
+}
+
+setInterval(() => {
+    if(gameActive && timeLeft > 0) {
+        timeLeft--;
+        let m = Math.floor(timeLeft/60), s = timeLeft%60;
+        document.getElementById('timer').innerText = `${m}:${s < 10 ? '0'+s : s}`;
+        if(timeLeft <= 0) endGame("МАТЧ ОКОНЧЕН");
+    }
+}, 1000);
+</script>
+</body>
+</html>
